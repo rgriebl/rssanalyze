@@ -97,7 +97,15 @@ for my $arg (@ARGV) {
     }
     close DATA;
 
-    $prefix = "$arg:  " if (scalar @ARGV > 1);
+    if (scalar @ARGV > 1) {
+        my $cmdline;
+        $prefix = "$arg:  ";
+        open CMDLINE, "<", "/proc/$arg/cmdline";
+        binmode(CMDLINE);
+        read CMDLINE, $cmdline, 512;
+        close CMDLINE;
+        printf "${prefix}Cmd: %s\n", join(' ', split(chr(0), $cmdline));
+    }
     printf "${prefix}Total mapped memory:     %d kB\n", $lines{'Size'};
     printf "${prefix}    of which is padding: %d kB\n", $lines{'Padding_Size'};
     printf "${prefix}   of which swapped out: %d kB\n", $lines{'Swap'};
