@@ -80,9 +80,13 @@ for my $arg (@ARGV) {
 
 	    if ($likely_thread_stack) {
 		$lines{"Thread_Stack_$1"} += $2;
-	    } elsif ($header[3] eq '00:00') {
-		$lines{"Anonymous_$1"} += $2;
-	    } else {
+            } elsif ($header[5] =~ /\[(?!heap)/) {
+            } elsif ($header[3] eq '00:00') {
+                my $start = (split /-/, $header[0])[0];
+                my $lastend = (split /-/, $lastheader[0])[1];
+                $lines{"RWData_$1"} += $2 if $start eq $lastend;
+                $lines{"Anonymous_$1"} += $2 unless $start eq $lastend;
+            } else {
 		$lines{"RWData_$1"} += $2;
 	    }
 	} elsif ($header[1] eq 'rw-s' && $header[3] ne '00:00') {
