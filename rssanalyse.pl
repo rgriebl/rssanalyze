@@ -95,6 +95,8 @@ for my $arg (@ARGV) {
 	    $lines{"ROData_$1"} += $2;
 	} elsif ($header[1] eq 'r-xp') {
 	    $lines{"Code_$1"} += $2;
+	} elsif ($header[1] eq 'rwxp') {
+	    $lines{"RWCode_$1"} += $2;
 	} elsif ($header[1] eq '---p') {
 	    $lines{"Padding_$1"} += $2;
 	}
