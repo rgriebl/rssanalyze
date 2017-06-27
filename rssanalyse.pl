@@ -50,15 +50,22 @@ sub sharedPrivateReport($) {
 }
 
 for my $arg (@ARGV) {
+    my $stacksize = 8192;   # Default on Linux
+    if (open LIMITS, "</proc/$arg/limits") {
+        $stacksize = (map { /Max stack size\s+(\d+)/ ? $1 : (); } <LIMITS>)[0] / 1024;
+        close LIMITS;
+    }
+
     open DATA, "</proc/$arg/smaps" or die("Cannot open smaps file for PID $arg");
     my @header;
     my @lastheader;
-    my $likely_thread_stack;
     %lines = ();
     while (<DATA>) {
 	if (/^([0-9a-f-]+) ([rwxps-]{4}) ([0-9a-f-]+) ([0-9a-f:]+) (\d+)\s+(.*)$/) {
-	    @lastheader = @header;
-	    @header = ($1, $2, $3, $4, $5, $6)
+            @lastheader = @header;
+            @header = ($1, $2, $3, $4, $5, $6);
+            my @vm = split /-/, $1;
+            push @header, (hex($vm[1]) - hex($vm[0])) / 1024;
 	}
 
         /(\w+):\s*(\d+) kB/ or next;
@@ -68,9 +75,9 @@ for my $arg (@ARGV) {
         } elsif ($header[5] =~ m/\[stack:/) {
             $lines{"Thread_Stack_$1"} += $2;
 	} elsif ($header[1] eq 'rw-p') {
-	    $likely_thread_stack = ($2 == 8192 && $header[3] eq '00:00'
-				    && $lastheader[1] eq '---p')
-		if ($1 eq 'Size');
+            # Check if it's a .bss section (contiguous to a previous rw-p) or a thread stack
+            my $likely_thread_stack = ($header[6] == $stacksize && $header[3] eq '00:00' && $lastheader[1] eq '---p');
+
 	    if ($likely_thread_stack) {
 		$lines{"Thread_Stack_$1"} += $2;
 	    } elsif ($header[3] eq '00:00') {
