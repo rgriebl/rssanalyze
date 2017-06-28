@@ -1,5 +1,19 @@
 #!/usr/bin/perl
 use strict;
+my $prefix;
+my $verbose = 0;
+my %lines;
+my @mapkeys;
+my %mappings;
+my $sizeAndRss = [['VSZ', "Size"], ['RSS', "Rss"]];
+my $breakdown = [
+    ['VSZ', "Size"],
+    ['SC', "Shared_Clean"],
+    ['SD', "Shared_Dirty"],
+    ['PC', "Private_Clean"],
+    ['PD', "Private_Dirty"],
+    ['Swap', "Swap"]
+];
 
 sub percent($$) {
     my $value = $_[0];
@@ -8,8 +22,6 @@ sub percent($$) {
     return $value * 100 / $total;
 }
 
-my $prefix;
-my %lines;
 sub sharedPrivateReport($) {
     my $type = $_[0];
     my $clean = $lines{$type . "_Clean"};
@@ -49,7 +61,59 @@ sub sharedPrivateReport($) {
 	   $other, percent($other, $total));
 }
 
+sub verboseReport($$$) {
+    my ($heading, $base, $selectors) = @_;
+    my %totals = ();
+    for my $key (@mapkeys) {
+        my %mapinfo = %{$mappings{$key}};
+        my $sizes = "";
+        for my $selector (@{$selectors}) {
+            my @selector = @{$selector};
+            my $value = $mapinfo{"${base}_$selector[1]"};
+            next unless $value;
+            $totals{$selector[1]} += $value;
+            $sizes .= sprintf("%s:%dkB ", $selector[0], $value);
+        }
+
+        next unless length($sizes);
+        print "$prefix$heading:\n" if length($heading);
+        $heading = "";
+        printf "${prefix} %-25s  %-25s\t%s\n",
+            $key, $sizes, $mapinfo{"file"};
+    }
+
+    my $sizes = "";
+    for my $selector (@{$selectors}) {
+        my @selector = @{$selector};
+        my $value = $totals{$selector[1]};
+        next unless $value;
+        $totals{$selector[1]} += $value;
+        $sizes .= sprintf("%s:%dkB ", $selector[0], $value);
+    }
+    printf "${prefix} %-25s  %-20s\n", "Total", $sizes
+        if length($sizes);
+}
+
+sub addTo($$$) {
+    my ($name, $value, $header) = @_;
+    $lines{"$name"} += $value;
+    return unless $verbose;
+
+    my @header = @{$header};
+    my $key = $header[0];
+    my %mapinfo = %{$mappings{$key}} if defined($mappings{$key});
+    $mapinfo{$name} = $value;
+    $mapinfo{"file"} = $header[5];
+    $mappings{$key} = \%mapinfo;
+}
+
 for my $arg (@ARGV) {
+    if ($arg eq "-v" || $arg eq "-vv") {
+        ++$verbose;
+        ++$verbose if $arg eq "-vv";
+        next;
+    }
+
     my $stacksize = 8192;   # Default on Linux
     if (open LIMITS, "</proc/$arg/limits") {
         $stacksize = (map { /Max stack size\s+(\d+)/ ? $1 : (); } <LIMITS>)[0] / 1024;
@@ -60,6 +124,7 @@ for my $arg (@ARGV) {
     my @header;
     my @lastheader;
     %lines = ();
+    %mappings = ();
     while (<DATA>) {
 	if (/^([0-9a-f-]+) ([rwxps-]{4}) ([0-9a-f-]+) ([0-9a-f:]+) (\d+)\s+(.*)$/) {
             @lastheader = @header;
@@ -69,36 +134,36 @@ for my $arg (@ARGV) {
 	}
 
         /(\w+):\s*(\d+) kB/ or next;
-        $lines{$1} += $2;
+        addTo($1, $2, \@header);
 	if ($header[5] eq '[stack]' || %header[5] eq "[stack:$arg]") {
-	    $lines{"Main_Stack_$1"} += $2;
+	    addTo("Main_Stack_$1", $2, \@header);
         } elsif ($header[5] =~ m/\[stack:/) {
-            $lines{"Thread_Stack_$1"} += $2;
+            addTo("Thread_Stack_$1", $2, \@header);
 	} elsif ($header[1] eq 'rw-p') {
             # Check if it's a .bss section (contiguous to a previous rw-p) or a thread stack
             my $likely_thread_stack = ($header[6] == $stacksize && $header[3] eq '00:00' && $lastheader[1] eq '---p');
 
 	    if ($likely_thread_stack) {
-		$lines{"Thread_Stack_$1"} += $2;
+		addTo("Thread_Stack_$1", $2, \@header);
             } elsif ($header[5] =~ /\[(?!heap)/) {
             } elsif ($header[3] eq '00:00') {
                 my $start = (split /-/, $header[0])[0];
                 my $lastend = (split /-/, $lastheader[0])[1];
-                $lines{"RWData_$1"} += $2 if $start eq $lastend;
-                $lines{"Anonymous_$1"} += $2 unless $start eq $lastend;
+                addTo("RWData_$1", $2, \@header) if $start eq $lastend;
+                addTo("Anonymous_$1", $2, \@header) unless $start eq $lastend;
             } else {
-		$lines{"RWData_$1"} += $2;
+		addTo("RWData_$1", $2, \@header);
 	    }
 	} elsif ($header[1] eq 'rw-s' && $header[3] ne '00:00') {
-	    $lines{"RWData_$1"} += $2;
+	    addTo("RWData_$1", $2, \@header);
 	} elsif ($header[1] eq 'r--p' || $header[1] eq 'r--s') {
-	    $lines{"ROData_$1"} += $2;
+	    addTo("ROData_$1", $2, \@header);
 	} elsif ($header[1] eq 'r-xp') {
-	    $lines{"Code_$1"} += $2;
+	    addTo("Code_$1", $2, \@header);
 	} elsif ($header[1] eq 'rwxp') {
-	    $lines{"RWCode_$1"} += $2;
+	    addTo("RWCode_$1", $2, \@header);
 	} elsif ($header[1] eq '---p') {
-	    $lines{"Padding_$1"} += $2;
+	    addTo("Padding_$1", $2, \@header);
 	}
     }
     close DATA;
@@ -112,6 +177,25 @@ for my $arg (@ARGV) {
         close CMDLINE;
         printf "${prefix}Cmd: %s\n", join(' ', split(chr(0), $cmdline));
     }
+    if ($verbose) {
+        @mapkeys = sort keys %mappings;
+        print "${prefix}Memory classification:\n";
+        verboseReport("Padding regions", "Padding", [['VSZ', 'Size']])
+            if $verbose > 1;
+        verboseReport("Heap", 'Anonymous', $sizeAndRss);
+        verboseReport("Main stack", "Main_Stack", $sizeAndRss);
+        verboseReport("Thread stack", "Thread_Stack", $sizeAndRss);
+
+        my $selector = ($verbose > 1 ? $breakdown : $sizeAndRss);
+        verboseReport("Code (.text)", 'Code', $selector);
+        verboseReport("JIT/SMC code", 'RWCode', $selector);
+        verboseReport("Read-only data (.rodata)", 'ROData', $selector);
+        verboseReport("Writable data (.data, .bss)", 'RWData', $selector);
+        print "${prefix}[S = Shared, P = Private; C = Clean, D = Dirty]\n"
+            if $verbose > 1;
+        print "${prefix}\n${prefix}Summary:\n";
+    }
+
     printf "${prefix}Total mapped memory:     %d kB\n", $lines{'Size'};
     printf "${prefix}    of which is padding: %d kB\n", $lines{'Padding_Size'};
     printf "${prefix}   of which swapped out: %d kB\n", $lines{'Swap'};
