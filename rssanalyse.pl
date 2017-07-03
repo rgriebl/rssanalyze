@@ -149,8 +149,11 @@ for my $arg (@ARGV) {
             } elsif ($header[3] eq '00:00') {
                 my $start = (split /-/, $header[0])[0];
                 my $lastend = (split /-/, $lastheader[0])[1];
-                addTo("RWData_$1", $2, \@header) if $start eq $lastend;
-                addTo("Anonymous_$1", $2, \@header) unless $start eq $lastend;
+                if ($start eq $lastend && $lastheader[3] ne '00:00') {
+                    addTo("RWData_$1", $2, \@header);
+                } else {
+                    addTo("Anonymous_$1", $2, \@header);
+                }
             } else {
 		addTo("RWData_$1", $2, \@header);
 	    }
