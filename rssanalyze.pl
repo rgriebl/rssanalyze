@@ -2,6 +2,7 @@
 use strict;
 my $prefix;
 my $verbose = 0;
+my $proc = "/proc";
 my %lines;
 my @mapkeys;
 my %mappings;
@@ -107,20 +108,28 @@ sub addTo($$$) {
     $mappings{$key} = \%mapinfo;
 }
 
+my @pids;
+
 for my $arg (@ARGV) {
     if ($arg eq "-v" || $arg eq "-vv") {
         ++$verbose;
         ++$verbose if $arg eq "-vv";
-        next;
+    } elsif ($arg =~ /^--proc=/) {
+        $proc = substr($arg, 7);
+        print "Redirecting /proc access to $proc";
+    } else {
+        push @pids, $arg;
     }
+}
 
+for my $pid (@pids) {
     my $stacksize = 8192;   # Default on Linux
-    if (open LIMITS, "</proc/$arg/limits") {
+    if (open LIMITS, "<$proc/$pid/limits") {
         $stacksize = (map { /Max stack size\s+(\d+)/ ? $1 : (); } <LIMITS>)[0] / 1024;
         close LIMITS;
     }
 
-    open DATA, "</proc/$arg/smaps" or die("Cannot open smaps file for PID $arg");
+    open DATA, "<$proc/$pid/smaps" or die("Cannot open smaps file for PID $pid");
     my @header;
     my @lastheader;
     %lines = ();
@@ -135,7 +144,7 @@ for my $arg (@ARGV) {
 
         /(\w+):\s*(\d+) kB/ or next;
         addTo($1, $2, \@header);
-	if ($header[5] eq '[stack]' || %header[5] eq "[stack:$arg]") {
+	if ($header[5] eq '[stack]' || %header[5] eq "[stack:$pid]") {
 	    addTo("Main_Stack_$1", $2, \@header);
         } elsif ($header[5] =~ m/\[stack:/) {
             addTo("Thread_Stack_$1", $2, \@header);
@@ -173,8 +182,8 @@ for my $arg (@ARGV) {
 
     if (scalar @ARGV > 1) {
         my $cmdline;
-        $prefix = "$arg:  ";
-        open CMDLINE, "<", "/proc/$arg/cmdline";
+        $prefix = "$pid:  ";
+        open CMDLINE, "<", "/$proc/$pid/cmdline";
         binmode(CMDLINE);
         read CMDLINE, $cmdline, 512;
         close CMDLINE;
