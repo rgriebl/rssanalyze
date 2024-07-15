@@ -28,7 +28,9 @@ Example output:
 
 You can also add `-v` and `-vv` to get a very verbose report where you can exactly see which shared library attributed how much to the memory totals.
 
-If you cannot execute a Perl script on an embedded target, you can copy the needed `/proc/<pid>/smaps` files to your development machine (e.g. to `/tmp/targetproc/<pid>/smaps`) and then start rssanalyze.pl with `--proc=/tmp/targetproc` to redirect any `/proc` access.
+If you cannot execute a Perl script on an embedded target, you can copy the needed `/proc/<pid>/smaps` files to your development machine (e.g. to `/tmp/targetproc/<pid>/smaps`) and then start 
+rssanalyze.pl with `--proc=/tmp/targetproc` to redirect any `/proc` access.
+(see also [REMOTE.md](REMOTE.md))
 
 The original script does however lack an explanation for all the values it reports:
 
